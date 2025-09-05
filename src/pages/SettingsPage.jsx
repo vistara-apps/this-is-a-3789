@@ -1,10 +1,66 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useApp } from '../context/AppContext'
-import { Settings, User, Bell, Shield, CreditCard, Globe, Phone } from 'lucide-react'
+import { Settings, User, Bell, Shield, CreditCard, Globe, Phone, Key, Eye, EyeOff } from 'lucide-react'
+import { US_STATES } from '../data/stateRights'
+import openaiService from '../services/openai'
+import pinataService from '../services/pinata'
+import stripeService from '../services/stripe'
+import storageService from '../utils/storage'
 
 export default function SettingsPage() {
   const { state, dispatch } = useApp()
   const [trustedContact, setTrustedContact] = useState('')
+  const [apiKeys, setApiKeys] = useState({
+    openai: '',
+    pinataKey: '',
+    pinataSecret: '',
+    stripePublishable: ''
+  })
+  const [showApiKeys, setShowApiKeys] = useState({
+    openai: false,
+    pinataKey: false,
+    pinataSecret: false,
+    stripePublishable: false
+  })
+  const [apiStatus, setApiStatus] = useState({
+    openai: 'unconfigured',
+    pinata: 'unconfigured',
+    stripe: 'unconfigured'
+  })
+
+  useEffect(() => {
+    // Load saved API keys
+    const savedKeys = storageService.getApiKeys()
+    setApiKeys(savedKeys)
+    
+    // Initialize services with saved keys
+    if (savedKeys.openai) {
+      try {
+        openaiService.initialize(savedKeys.openai)
+        setApiStatus(prev => ({ ...prev, openai: 'configured' }))
+      } catch (error) {
+        setApiStatus(prev => ({ ...prev, openai: 'error' }))
+      }
+    }
+    
+    if (savedKeys.pinataKey && savedKeys.pinataSecret) {
+      try {
+        pinataService.initialize(savedKeys.pinataKey, savedKeys.pinataSecret)
+        setApiStatus(prev => ({ ...prev, pinata: 'configured' }))
+      } catch (error) {
+        setApiStatus(prev => ({ ...prev, pinata: 'error' }))
+      }
+    }
+    
+    if (savedKeys.stripePublishable) {
+      try {
+        stripeService.initialize(savedKeys.stripePublishable)
+        setApiStatus(prev => ({ ...prev, stripe: 'configured' }))
+      } catch (error) {
+        setApiStatus(prev => ({ ...prev, stripe: 'error' }))
+      }
+    }
+  }, [])
 
   const addTrustedContact = () => {
     if (trustedContact.trim()) {
@@ -41,6 +97,62 @@ export default function SettingsPage() {
     dispatch({ type: 'SET_PREMIUM_STATUS', payload: !state.user.premiumStatus })
   }
 
+  const handleApiKeyChange = (service, value) => {
+    setApiKeys(prev => ({ ...prev, [service]: value }))
+  }
+
+  const saveApiKey = async (service) => {
+    const newKeys = { ...apiKeys }
+    storageService.saveApiKeys(newKeys)
+    
+    try {
+      if (service === 'openai' && apiKeys.openai) {
+        openaiService.initialize(apiKeys.openai)
+        setApiStatus(prev => ({ ...prev, openai: 'configured' }))
+      } else if (service === 'pinata' && apiKeys.pinataKey && apiKeys.pinataSecret) {
+        pinataService.initialize(apiKeys.pinataKey, apiKeys.pinataSecret)
+        setApiStatus(prev => ({ ...prev, pinata: 'configured' }))
+      } else if (service === 'stripe' && apiKeys.stripePublishable) {
+        await stripeService.initialize(apiKeys.stripePublishable)
+        setApiStatus(prev => ({ ...prev, stripe: 'configured' }))
+      }
+      alert('API key saved successfully!')
+    } catch (error) {
+      console.error('Error saving API key:', error)
+      setApiStatus(prev => ({ ...prev, [service]: 'error' }))
+      alert('Error configuring API. Please check your key.')
+    }
+  }
+
+  const testApiConnection = async (service) => {
+    try {
+      if (service === 'pinata') {
+        const result = await pinataService.testConnection()
+        alert(result ? 'Pinata connection successful!' : 'Pinata connection failed!')
+      } else {
+        alert('Test connection feature coming soon for this service.')
+      }
+    } catch (error) {
+      alert('Connection test failed. Please check your API keys.')
+    }
+  }
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'configured': return 'text-green-600'
+      case 'error': return 'text-red-600'
+      default: return 'text-gray-500'
+    }
+  }
+
+  const getStatusText = (status) => {
+    switch (status) {
+      case 'configured': return 'Configured'
+      case 'error': return 'Error'
+      default: return 'Not configured'
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -70,11 +182,9 @@ export default function SettingsPage() {
               className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-accent focus:border-transparent"
             >
               <option value="">Select State</option>
-              <option value="CA">California</option>
-              <option value="NY">New York</option>
-              <option value="TX">Texas</option>
-              <option value="FL">Florida</option>
-              <option value="IL">Illinois</option>
+              {US_STATES.map(stateName => (
+                <option key={stateName} value={stateName}>{stateName}</option>
+              ))}
             </select>
           </div>
 
@@ -95,6 +205,149 @@ export default function SettingsPage() {
             >
               {state.user.premiumStatus ? 'Premium' : 'Upgrade'}
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* API Configuration */}
+      <div className="card">
+        <div className="flex items-center space-x-3 mb-4">
+          <Key className="h-6 w-6 text-text-secondary" />
+          <h2 className="text-lg font-semibold text-text-primary">API Configuration</h2>
+        </div>
+        
+        <div className="space-y-6">
+          {/* OpenAI API */}
+          <div className="border border-gray-200 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="font-medium text-text-primary">OpenAI API</h3>
+                <p className="text-sm text-text-secondary">For AI-powered incident summaries and rights explanations</p>
+              </div>
+              <span className={`text-sm font-medium ${getStatusColor(apiStatus.openai)}`}>
+                {getStatusText(apiStatus.openai)}
+              </span>
+            </div>
+            <div className="flex space-x-2">
+              <div className="flex-1 relative">
+                <input
+                  type={showApiKeys.openai ? 'text' : 'password'}
+                  value={apiKeys.openai}
+                  onChange={(e) => handleApiKeyChange('openai', e.target.value)}
+                  placeholder="sk-..."
+                  className="w-full p-3 pr-10 border border-gray-300 rounded-md focus:ring-2 focus:ring-accent focus:border-transparent"
+                />
+                <button
+                  onClick={() => setShowApiKeys(prev => ({ ...prev, openai: !prev.openai }))}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showApiKeys.openai ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <button
+                onClick={() => saveApiKey('openai')}
+                className="px-4 py-2 bg-accent text-white rounded-md hover:bg-accent/90"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+
+          {/* Pinata API */}
+          <div className="border border-gray-200 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="font-medium text-text-primary">Pinata IPFS</h3>
+                <p className="text-sm text-text-secondary">For secure, decentralized storage of recordings</p>
+              </div>
+              <span className={`text-sm font-medium ${getStatusColor(apiStatus.pinata)}`}>
+                {getStatusText(apiStatus.pinata)}
+              </span>
+            </div>
+            <div className="space-y-3">
+              <div className="flex space-x-2">
+                <div className="flex-1 relative">
+                  <input
+                    type={showApiKeys.pinataKey ? 'text' : 'password'}
+                    value={apiKeys.pinataKey}
+                    onChange={(e) => handleApiKeyChange('pinataKey', e.target.value)}
+                    placeholder="API Key"
+                    className="w-full p-3 pr-10 border border-gray-300 rounded-md focus:ring-2 focus:ring-accent focus:border-transparent"
+                  />
+                  <button
+                    onClick={() => setShowApiKeys(prev => ({ ...prev, pinataKey: !prev.pinataKey }))}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showApiKeys.pinataKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <div className="flex space-x-2">
+                <div className="flex-1 relative">
+                  <input
+                    type={showApiKeys.pinataSecret ? 'text' : 'password'}
+                    value={apiKeys.pinataSecret}
+                    onChange={(e) => handleApiKeyChange('pinataSecret', e.target.value)}
+                    placeholder="API Secret"
+                    className="w-full p-3 pr-10 border border-gray-300 rounded-md focus:ring-2 focus:ring-accent focus:border-transparent"
+                  />
+                  <button
+                    onClick={() => setShowApiKeys(prev => ({ ...prev, pinataSecret: !prev.pinataSecret }))}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showApiKeys.pinataSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                <button
+                  onClick={() => saveApiKey('pinata')}
+                  className="px-4 py-2 bg-accent text-white rounded-md hover:bg-accent/90"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={() => testApiConnection('pinata')}
+                  className="px-4 py-2 border border-accent text-accent rounded-md hover:bg-accent/10"
+                >
+                  Test
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Stripe API */}
+          <div className="border border-gray-200 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="font-medium text-text-primary">Stripe Payments</h3>
+                <p className="text-sm text-text-secondary">For premium subscription processing</p>
+              </div>
+              <span className={`text-sm font-medium ${getStatusColor(apiStatus.stripe)}`}>
+                {getStatusText(apiStatus.stripe)}
+              </span>
+            </div>
+            <div className="flex space-x-2">
+              <div className="flex-1 relative">
+                <input
+                  type={showApiKeys.stripePublishable ? 'text' : 'password'}
+                  value={apiKeys.stripePublishable}
+                  onChange={(e) => handleApiKeyChange('stripePublishable', e.target.value)}
+                  placeholder="pk_..."
+                  className="w-full p-3 pr-10 border border-gray-300 rounded-md focus:ring-2 focus:ring-accent focus:border-transparent"
+                />
+                <button
+                  onClick={() => setShowApiKeys(prev => ({ ...prev, stripePublishable: !prev.stripePublishable }))}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showApiKeys.stripePublishable ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <button
+                onClick={() => saveApiKey('stripe')}
+                className="px-4 py-2 bg-accent text-white rounded-md hover:bg-accent/90"
+              >
+                Save
+              </button>
+            </div>
           </div>
         </div>
       </div>
