@@ -1,13 +1,23 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useApp } from '../context/AppContext'
 import ScriptButton from '../components/ScriptButton'
-import { MessageSquare, Globe } from 'lucide-react'
+import { MessageSquare, Globe, AlertTriangle } from 'lucide-react'
+import { getStateRights } from '../data/stateRights'
 
 export default function ScriptsPage() {
   const { state, dispatch } = useApp()
   const [selectedLanguage, setSelectedLanguage] = useState(state.selectedLanguage)
+  const [stateScripts, setStateScripts] = useState(null)
 
-  const scripts = {
+  useEffect(() => {
+    if (state.user.state) {
+      const rights = getStateRights(state.user.state)
+      setStateScripts(rights?.scriptContent)
+    }
+  }, [state.user.state])
+
+  // Fallback scripts for states without detailed data
+  const fallbackScripts = {
     english: [
       {
         title: 'Traffic Stop',
@@ -59,6 +69,21 @@ export default function ScriptsPage() {
     dispatch({ type: 'SET_LANGUAGE', payload: language })
   }
 
+  // Get scripts from state data or fallback
+  const currentScripts = stateScripts?.[selectedLanguage] || fallbackScripts[selectedLanguage]
+
+  if (!state.user.state) {
+    return (
+      <div className="card text-center">
+        <AlertTriangle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
+        <h2 className="text-xl font-semibold text-text-primary mb-2">Select Your State First</h2>
+        <p className="text-text-secondary">
+          Please select your state from the home page to view appropriate scripts.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -67,7 +92,12 @@ export default function ScriptsPage() {
           <MessageSquare className="h-8 w-8" />
           <div>
             <h1 className="text-2xl font-bold">Quick Response Scripts</h1>
-            <p className="opacity-90">Pre-written phrases for police interactions</p>
+            <p className="opacity-90">
+              {stateScripts 
+                ? `State-specific phrases for ${state.user.state}` 
+                : 'Pre-written phrases for police interactions'
+              }
+            </p>
           </div>
         </div>
       </div>
@@ -117,18 +147,44 @@ export default function ScriptsPage() {
       {/* Scripts */}
       <div className="space-y-4">
         <h2 className="text-lg font-semibold text-text-primary">
-          Common Scenarios - {selectedLanguage === 'english' ? 'English' : 'Español'}
+          {stateScripts ? 'State-Specific Scripts' : 'Common Scenarios'} - {selectedLanguage === 'english' ? 'English' : 'Español'}
         </h2>
         
-        <div className="space-y-4">
-          {scripts[selectedLanguage].map((script, index) => (
-            <ScriptButton
-              key={index}
-              script={script}
-              variant={selectedLanguage}
-            />
-          ))}
-        </div>
+        {stateScripts ? (
+          // Display state-specific scripts organized by scenario
+          <div className="space-y-6">
+            {Object.entries(currentScripts).map(([scenario, scripts]) => (
+              <div key={scenario} className="space-y-3">
+                <h3 className="text-md font-semibold text-text-primary border-b border-gray-200 pb-2">
+                  {scenario}
+                </h3>
+                <div className="space-y-3">
+                  {scripts.map((scriptText, index) => (
+                    <ScriptButton
+                      key={`${scenario}-${index}`}
+                      script={{
+                        title: `${scenario} - Script ${index + 1}`,
+                        text: scriptText
+                      }}
+                      variant={selectedLanguage}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          // Display fallback scripts
+          <div className="space-y-4">
+            {currentScripts.map((script, index) => (
+              <ScriptButton
+                key={index}
+                script={script}
+                variant={selectedLanguage}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Premium Features Teaser */}
